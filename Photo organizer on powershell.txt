@@ -1,0 +1,263 @@
+#region CONFIGURATION
+
+$SourceFolders = @(
+    "C:\Example old folder"
+    
+)
+
+$DestinationRoot = "C:\Example new folder"
+
+$ErrorLog = Join-Path $PSScriptRoot "errors.log"
+
+#endregion
+
+#region INITIALIZATION
+
+Add-Type -AssemblyName System.Drawing
+
+if (Test-Path $ErrorLog) {
+    Remove-Item $ErrorLog -Force
+}
+
+$SupportedExtensions = @(
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".bmp",
+    ".gif",
+    ".tif",
+    ".tiff",
+    ".heic",
+    ".webp"
+)
+
+$script:Processed = 0
+$script:Success   = 0
+$script:Skipped   = 0
+$script:Errors    = 0
+
+#endregion
+
+#region FUNCTIONS
+
+function Write-LogError {
+
+    param(
+        [string]$Message
+    )
+
+    $time = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+
+    Add-Content -Path $ErrorLog -Value "[$time] $Message"
+}
+
+function Get-PhotoDate {
+
+    param(
+        [System.IO.FileInfo]$File
+    )
+
+    try {
+
+        $image = [System.Drawing.Image]::FromFile($File.FullName)
+
+        try {
+
+            $property = $image.GetPropertyItem(36867)
+
+            if ($property -and $property.Value) {
+
+                $text = [System.Text.Encoding]::ASCII.GetString($property.Value).Trim([char]0)
+
+                return [datetime]::ParseExact(
+                    $text,
+                    "yyyy:MM:dd HH:mm:ss",
+                    [System.Globalization.CultureInfo]::InvariantCulture
+                )
+            }
+
+        }
+        finally {
+
+            $image.Dispose()
+        }
+
+    }
+    catch {
+        # Ignore EXIF errors
+    }
+
+    return $File.CreationTime
+}
+
+function Get-UniqueDestinationPath {
+
+    param(
+        [string]$Folder,
+        [string]$FileName
+    )
+
+    $base = [System.IO.Path]::GetFileNameWithoutExtension($FileName)
+    $ext  = [System.IO.Path]::GetExtension($FileName)
+
+    $candidate = Join-Path $Folder $FileName
+
+    if (-not (Test-Path $candidate)) {
+        return $candidate
+    }
+
+    $index = 1
+
+    while ($true) {
+
+        $newName = "{0} ({1}){2}" -f $base, $index, $ext
+
+        $candidate = Join-Path $Folder $newName
+
+        if (-not (Test-Path $candidate)) {
+            return $candidate
+        }
+
+        $index++
+    }
+}
+
+function Get-TotalFileCount {
+
+    param(
+        [string[]]$Folders
+    )
+
+    $count = 0
+
+    foreach ($folder in $Folders) {
+
+        if (-not (Test-Path $folder)) {
+            continue
+        }
+
+        try {
+
+            $count += Get-ChildItem -LiteralPath $folder -File -Recurse -ErrorAction SilentlyContinue |
+                Where-Object {
+                    $SupportedExtensions -contains $_.Extension.ToLower()
+                } |
+                Measure-Object |
+                Select-Object -ExpandProperty Count
+        }
+        catch {
+        }
+    }
+
+    return $count
+}
+
+function Process-Files {
+
+    param(
+        [string[]]$Folders,
+        [string]$Destination
+    )
+
+    $total = Get-TotalFileCount $Folders
+
+    if ($total -eq 0) {
+        Write-Host "No supported image files found."
+        return
+    }
+
+    foreach ($folder in $Folders) {
+
+        if (-not (Test-Path $folder)) {
+
+            Write-Warning "Source folder not found: $folder"
+            continue
+        }
+
+        Get-ChildItem -LiteralPath $folder -File -Recurse -ErrorAction SilentlyContinue |
+
+        ForEach-Object {
+
+            $file = $_
+
+            if ($SupportedExtensions -notcontains $file.Extension.ToLower()) {
+                return
+            }
+
+            $script:Processed++
+
+            $percent = [int](($script:Processed / $total) * 100)
+
+            Write-Progress `
+                -Activity "Sorting Photos" `
+                -Status "$($file.FullName)" `
+                -PercentComplete $percent `
+                -CurrentOperation "Processed: $script:Processed / $total"
+
+            try {
+
+                $date = Get-PhotoDate $file
+
+                $year = $date.ToString("yyyy")
+                $month = $date.ToString("MM")
+
+                $targetFolder = Join-Path $Destination "$year\$month"
+
+                if (-not (Test-Path $targetFolder)) {
+
+                    New-Item `
+                        -ItemType Directory `
+                        -Path $targetFolder `
+                        -Force | Out-Null
+                }
+
+                $destinationFile = Get-UniqueDestinationPath `
+                    -Folder $targetFolder `
+                    -FileName $file.Name
+
+                Move-Item `
+                    -LiteralPath $file.FullName `
+                    -Destination $destinationFile `
+                    -ErrorAction Stop
+
+                $script:Success++
+            }
+            catch {
+
+                $script:Errors++
+
+                Write-LogError "$($file.FullName) --> $($_.Exception.Message)"
+
+                continue
+            }
+        }
+    }
+
+    Write-Progress -Activity "Sorting Photos" -Completed
+}
+
+#endregion
+
+#region MAIN
+
+$start = Get-Date
+
+Process-Files `
+    -Folders $SourceFolders `
+    -Destination $DestinationRoot
+
+$elapsed = (Get-Date) - $start
+
+Write-Host ""
+Write-Host "========================================="
+Write-Host "Completed"
+Write-Host "========================================="
+Write-Host ("Processed : {0}" -f $Processed)
+Write-Host ("Success   : {0}" -f $Success)
+Write-Host ("Skipped   : {0}" -f $Skipped)
+Write-Host ("Errors    : {0}" -f $Errors)
+Write-Host ("Time      : {0:hh\:mm\:ss}" -f $elapsed)
+Write-Host ("Error Log : {0}" -f $ErrorLog)
+Write-Host "========================================="
+
+#endregion
