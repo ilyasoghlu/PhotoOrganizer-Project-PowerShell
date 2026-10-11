@@ -1,20 +1,41 @@
 # Photo Organizer
 
-A simple PowerShell script that organizes photos into year and month folders based on the date recorded in each image's metadata.
+A PowerShell script that automatically organizes photos into year and month folders based on their original capture dates.
 
-The script scans photos from a source folder and copies them into a destination folder, organizing them chronologically without modifying or moving the original files.
+The script scans one or more source folders, searches for supported image files recursively, reads their EXIF date metadata when available, and moves them into a structured destination directory.
+
+If the original capture date cannot be read, the script falls back to the file's creation date.
 
 ## Features
 
-- **Metadata-based date detection:** Uses the date recorded in the image metadata to determine when a photo was taken.
-- **Automatic organization:** Sorts photos into folders by year and month.
-- **Custom folder paths:** Specify your own source and destination directories.
-- **Original file preservation:** Copies photos while keeping the originals in the source folder.
-- **Simple execution:** Run the script directly in Windows PowerShell without setting up a separate application.
+- **Automatic date-based organization:** Organizes photos into folders by year and month.
+- **EXIF metadata support:** Uses the `DateTimeOriginal` EXIF property to identify when a photo was originally taken.
+- **Fallback date handling:** Uses the file creation date when the EXIF capture date is unavailable or cannot be read.
+- **Multiple source folders:** Processes photos from multiple configured directories.
+- **Recursive scanning:** Searches through nested subfolders without requiring a fixed folder depth.
+- **Supported image formats:** Includes JPG, JPEG, PNG, BMP, GIF, TIF, TIFF, HEIC, and WEBP extensions.
+- **Automatic directory creation:** Creates the required year and month folders in the destination directory.
+- **Duplicate filename handling:** Prevents filename collisions by adding numbered suffixes to files with the same name in the same destination folder.
+- **Progress reporting:** Displays a progress bar while processing files.
+- **Error logging:** Records processing errors in an `errors.log` file.
+- **Execution summary:** Displays processing statistics and the total execution time.
 
-## Folder Structure
+## How It Works
 
-The destination folder will be organized as follows:
+For each supported image, the script:
+
+1. Scans the configured source folders and their subdirectories.
+2. Attempts to read the photo's original capture date from its EXIF metadata.
+3. Uses the file creation date if the EXIF date is unavailable or cannot be read.
+4. Determines the corresponding year and month.
+5. Creates the required destination folders if they do not already exist.
+6. Checks whether a file with the same name already exists in the destination folder.
+7. Moves the photo into the appropriate folder.
+8. Records any processing errors in the log file.
+
+## Example Folder Structure
+
+After execution, the destination directory may look like this:
 
 ```text
 Sorted Photos/
@@ -35,90 +56,179 @@ Sorted Photos/
     └── ...
 ```
 
-Each year has its own folder, containing separate subfolders for each month. Photos are placed in the corresponding folders according to their metadata dates.
+Each year folder contains monthly subfolders numbered from `01` to `12`. Photos are moved into the folder corresponding to their detected year and month.
 
 ## Requirements
 
 - Windows
 - Windows PowerShell
-- A source folder containing your photos
-- An existing destination folder for the organized photos
+- Read access to the source folders
+- Write and delete permissions for moving files from the source to the destination
+- Sufficient free space on the destination drive
 
-## Tutorial: How to Use
+The script uses the .NET `System.Drawing` library to read image metadata. Actual image-format support may vary, particularly for formats such as HEIC and WEBP.
+
+## Tutorial: How to Run the Script
 
 ### Step 1: Prepare Your Folders
 
-Choose two folders:
+Choose the source folder or folders containing the photos you want to organize.
 
-- **Source folder:** Contains the photos you want to organize.
-- **Destination folder:** An empty folder where the organized photos will be copied.
+Also, choose a destination folder where the organized photos will be stored. The script creates the required year and month subfolders automatically.
 
 Example:
 
 ```text
-D:\Photos
-G:\Sorted Photos
+Source:      D:\Photos
+Destination: G:\Sorted Photos
 ```
 
-Replace these example paths with your actual folder locations.
+The destination folder does not have to be empty, but using a separate destination directory is recommended.
 
 ### Step 2: Open Windows PowerShell
 
 1. Open the Windows Start menu.
 2. Search for `Windows PowerShell`.
-3. Open the application.
+3. Launch PowerShell.
 
-### Step 3: Configure the Script
+Administrator privileges are generally unnecessary unless your folder permissions require them.
 
-Copy the script's code and paste it into the PowerShell window.
+### Step 3: Configure the Source and Destination Paths
 
-At the beginning of the code, locate the variables that specify the source and destination folders.
+Open the script in a text editor and locate the `CONFIGURATION` section at the beginning of the code.
 
-Update them with your folder paths. For example:
+Update `$SourceFolders` with the paths of the folders you want to scan, and set `$DestinationRoot` to your destination directory.
+
+Example:
 
 ```powershell
-$SourceFolder = "D:\Photos"
-$DestinationFolder = "G:\Sorted Photos"
+#region CONFIGURATION
+
+$SourceFolders = @(
+    "D:\Photos",
+    "E:\Camera Backup",
+    "F:\Telegram Photos"
+)
+
+$DestinationRoot = "G:\Sorted Photos"
+
+$ErrorLog = Join-Path $PSScriptRoot "errors.log"
+
+#endregion
 ```
 
-These variable names are examples. Use the actual names defined in your script.
+Replace the example paths with your actual directory locations.
 
-Make sure the paths are correct and the destination folder exists before continuing.
+You can add as many source folders as needed by adding their paths to the `$SourceFolders` array.
 
-### Step 4: Run the Script
+**Important:** Keep the destination folder separate from the source folders. This helps prevent unintended file-processing behavior.
 
-Press `Enter` to execute the code.
+### Step 4: Execute the Script
 
-The script will scan the photos in the source folder, read their recorded dates from image metadata, and copy them into the appropriate year and month folders in the destination directory.
+There are two ways to run the script.
 
-The time required depends on the number of photos, their file sizes, and your storage device's speed.
+**Option A — Paste the code into PowerShell**
 
-### Step 5: Check the Results
+1. Copy the complete script.
+2. Paste it into the PowerShell window.
+3. Press `Enter` to execute it.
 
-Open the destination folder and verify that the photos have been organized correctly.
+**Option B — Run the saved script**
+
+1. Save the code as `PhotoOrganizer.ps1`.
+2. Open PowerShell.
+3. Navigate to the directory containing the script, for example:
+
+```powershell
+cd "C:\Scripts"
+```
+
+4. Execute the script:
+
+```powershell
+.\PhotoOrganizer.ps1
+```
+
+Make sure you have configured the source and destination paths before execution.
+
+### Step 5: Monitor the Progress
+
+While the script runs, PowerShell displays a progress bar containing:
+
+- The file currently being processed.
+- The percentage of completion.
+- The number of processed files relative to the total number of supported image files found.
+
+Processing time depends on the number of files, disk performance, and metadata availability.
+
+### Step 6: Review the Results
+
+When processing finishes, the script displays a summary similar to the following:
+
+```text
+=========================================
+Completed
+=========================================
+Processed : 1500
+Success   : 1495
+Skipped   : 0
+Errors    : 5
+Time      : 00:02:35
+Error Log : C:\Scripts\errors.log
+=========================================
+```
+
+These numbers are illustrative only. Actual results depend on your photo collection.
+
+- **Processed:** Number of supported image files processed.
+- **Success:** Number of files successfully moved.
+- **Skipped:** Reserved counter; the current script does not increment it.
+- **Errors:** Number of files that encountered processing or moving errors.
+- **Time:** Total execution time.
+- **Error Log:** Location of the error log.
+
+## Duplicate Filename Handling
+
+If a file with the same name already exists in the destination month folder, the script generates a unique filename by adding a numbered suffix.
 
 For example:
 
 ```text
-G:\Sorted Photos\2023\07
+IMG_1001.jpg
+IMG_1001 (1).jpg
+IMG_1001 (2).jpg
 ```
 
-This folder contains photos assigned to July 2023.
+This prevents the script from overwriting an existing destination file because of a filename collision.
 
-The original photos remain in the source folder.
+The script does not compare image contents, so differently named files containing identical photos are not identified as duplicates.
+
+## Error Logging
+
+Errors encountered during file processing are written to `errors.log`, located in the directory containing the saved script.
+
+Each logged entry includes a timestamp, the affected file path, and the error message.
+
+Review this file if some photos could not be processed successfully.
+
+**Note:** The script deletes an existing `errors.log` at startup before creating a new log for the current run. Save any previous log you need to retain before running the script again.
 
 ## Important Notes
 
-- Verify both folder paths before running the script.
-- Ensure the destination drive has enough free space.
-- Test the script with a small collection of photos before processing a large library.
-- The organization process depends on the availability and format of the date metadata recorded in each image.
-- Photos without usable date metadata may require separate handling, depending on the script's implementation.
+- **This script moves files, not copies them.** Successfully processed photos are removed from their original source locations and placed in the destination directory.
+- Back up important photos before running the script.
+- Test the script with a small collection before processing your entire photo library.
+- The EXIF `DateTimeOriginal` property is preferred over the filesystem creation date.
+- When EXIF metadata is unavailable or unreadable, the filesystem creation date is used instead. This date may not represent the original capture date.
+- The script does not delete files that are already present in the destination folder.
+- Keep the source and destination paths correctly configured to avoid unintended file operations.
 
 ## Project Goal
 
-This project aims to make organizing large photo collections easier by automatically sorting images chronologically, reducing the need for manual file management.
+Photo Organizer was created to simplify the organization of large, mixed photo collections by automatically arranging images chronologically.
+
+The goal is to reduce manual work and provide a straightforward way to maintain a structured photo archive using PowerShell.
 
 ## Open Source
 
-This project is open source and is available for anyone interested in using, exploring, or improving the code.
+This project is open source. The code is available for anyone interested in using, studying, or contributing to its development.
